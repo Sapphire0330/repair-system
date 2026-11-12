@@ -41,6 +41,9 @@
 
 * { box-sizing: border-box; }
 
+/* 確保 hidden 屬性一定會隱藏元素，不會被 display: flex 等樣式蓋過 */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -199,6 +202,40 @@ button {
   overflow-wrap: anywhere;
 }
 .request-meta { margin: 0; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+
+/* PWA：離線提示與安裝提示 */
+.banner {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 16px 0 0;
+  font-size: 0.95rem;
+}
+.banner p { margin: 0; }
+.banner.offline { background: var(--err-bg); color: var(--err-text); }
+.banner.install {
+  background: var(--card);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.banner.install p { flex: 1 1 220px; }
+.banner-actions { display: flex; gap: 8px; }
+.link {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 8px;
+  text-decoration: underline;
+}
+
+/* 安裝成 App 後，頁首避開瀏海與狀態列 */
+@media (display-mode: standalone) {
+  .site-header { padding-top: max(24px, env(safe-area-inset-top)); }
+  .site-footer { padding-bottom: max(32px, env(safe-area-inset-bottom)); }
+}
 
 .site-footer { color: var(--muted); font-size: 0.85rem; padding-bottom: 32px; }
 

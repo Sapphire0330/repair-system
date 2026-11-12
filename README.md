@@ -9,6 +9,13 @@
 - `config.js` 只放 Supabase 網址與 publishable key（公開金鑰），不得放 secret 金鑰。
 - 發佈網址（GitHub Pages）：https://sapphire0330.github.io/repair-system/
 
+### 安裝成手機 App（PWA）
+網頁可以安裝到手機主畫面，之後像 App 一樣全螢幕開啟；離線時仍能打開畫面，但無法送出或更新清單。
+- **Android（Chrome）**：開啟網址後點頁面上的「安裝」，或瀏覽器選單的「安裝應用程式／加到主畫面」。
+- **iPhone／iPad（Safari）**：點下方「分享」按鈕，選「加入主畫面」。
+- 相關檔案：`manifest.webmanifest`（App 名稱、圖示、顏色）、`sw.js`（離線快取）、`icons/`（圖示）。
+- 修改 `sw.js` 快取清單內的檔案後，請把 `sw.js` 的 `CACHE_VERSION` 加一（例如 `v1` → `v2`），手機才會更新到新版。
+
 本機預覽（在儲存庫根目錄執行，再用瀏覽器開 http://localhost:8000/ ）：
 
 ```bash

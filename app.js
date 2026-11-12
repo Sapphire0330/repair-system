@@ -137,6 +137,10 @@
       return;
     }
 
+    if (!navigator.onLine) {
+      showMessage(formMessage, "error", "目前離線，無法送出報修。請連上網路後再按一次「送出報修」，已填的內容會保留。");
+      return;
+    }
     if (!client) {
       showMessage(formMessage, "error", "無法載入資料庫連線，請重新整理頁面後再試。");
       return;
@@ -202,6 +206,11 @@
       showMessage(listMessage, "error", "無法載入資料庫連線，請重新整理頁面後再試。");
       return;
     }
+    // 離線時不等待重試，直接提示；恢復連線時會自動重新載入
+    if (!navigator.onLine) {
+      showMessage(listMessage, "error", "目前離線，無法更新清單。連上網路後會自動重新載入。");
+      return;
+    }
     refreshButton.disabled = true;
     if (!list.children.length) showMessage(listMessage, "info", "載入中…");
     try {
@@ -230,4 +239,77 @@
   form.elements.description.addEventListener("input", updateCounter);
   refreshButton.addEventListener("click", loadList);
   loadList();
+
+  // ---------- PWA ----------
+  setupPwa();
+
+  function setupPwa() {
+    // 註冊 Service Worker（需 HTTPS 或 localhost）
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("sw.js").catch(function (err) {
+          console.warn("Service Worker 註冊失敗", err);
+        });
+      });
+    }
+
+    // 離線提示；恢復連線時自動重新載入清單
+    var offlineBanner = document.getElementById("offline-banner");
+    function updateOnline() {
+      offlineBanner.hidden = navigator.onLine;
+    }
+    window.addEventListener("offline", updateOnline);
+    window.addEventListener("online", function () {
+      updateOnline();
+      loadList();
+    });
+    updateOnline();
+
+    // 安裝提示
+    var banner = document.getElementById("install-banner");
+    var installText = document.getElementById("install-text");
+    var installButton = document.getElementById("install-button");
+    var dismissButton = document.getElementById("install-dismiss");
+    var DISMISS_KEY = "repair-install-dismissed";
+    var deferredPrompt = null;
+
+    function isStandalone() {
+      return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    }
+    function wasDismissed() {
+      try { return localStorage.getItem(DISMISS_KEY) === "1"; } catch (_) { return false; }
+    }
+    if (isStandalone() || wasDismissed()) return;
+
+    dismissButton.addEventListener("click", function () {
+      banner.hidden = true;
+      try { localStorage.setItem(DISMISS_KEY, "1"); } catch (_) { /* 無法記住也沒關係 */ }
+    });
+
+    // Android／電腦版 Chrome、Edge：瀏覽器判斷可安裝時，顯示「安裝」按鈕
+    window.addEventListener("beforeinstallprompt", function (event) {
+      event.preventDefault();
+      deferredPrompt = event;
+      installButton.hidden = false;
+      banner.hidden = false;
+    });
+    installButton.addEventListener("click", async function () {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      banner.hidden = true;
+    });
+    window.addEventListener("appinstalled", function () {
+      banner.hidden = true;
+    });
+
+    // iPhone／iPad 的 Safari 沒有安裝按鈕，改顯示操作說明
+    var ua = navigator.userAgent;
+    var isIos = /iPhone|iPad|iPod/.test(ua) || (ua.indexOf("Macintosh") !== -1 && navigator.maxTouchPoints > 1);
+    if (isIos) {
+      installText.textContent = "安裝到主畫面：點 Safari 下方的「分享」按鈕，再選「加入主畫面」。";
+      banner.hidden = false;
+    }
+  }
 })();
