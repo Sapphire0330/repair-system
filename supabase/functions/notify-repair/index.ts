@@ -1,16 +1,18 @@
 // Supabase Edge Function：notify-repair
-// repair_requests 新增資料時，由 Database Webhook 呼叫，用 Resend 寄出標題為「報修測試」的通知信。
+// repair_requests 新增資料時，由 Database Webhook 呼叫，用 LINE Messaging API 推播通知，
+// 訊息第一行固定為「【報修測試】」。
 // 所需設定（在 Supabase 的 Edge Functions → Secrets 設定，不要寫進程式碼）：
-//   RESEND_API_KEY、NOTIFY_EMAIL、WEBHOOK_SECRET，選填 MAIL_FROM
+//   LINE_CHANNEL_ACCESS_TOKEN、LINE_USER_ID、WEBHOOK_SECRET
 // 處理邏輯寫成 createHandler，設定與 fetch 由外部傳入，方便在本機測試。
 
-export const SUBJECT = "報修測試"; // 通知信標題一律固定
+export const TITLE = "【報修測試】"; // 通知訊息標題一律固定
+const LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push";
+const MAX_TEXT = 5000; // LINE 文字訊息上限
 
 export interface NotifyEnv {
-  RESEND_API_KEY?: string; // Resend 的 API 金鑰（機密，只存在 Supabase Secrets）
-  NOTIFY_EMAIL?: string; // 收件信箱（存在 Supabase Secrets，不寫進程式碼）
+  LINE_CHANNEL_ACCESS_TOKEN?: string; // LINE 頻道存取權杖（機密，只存在 Supabase Secrets）
+  LINE_USER_ID?: string; // 收通知的 LINE 使用者 ID（U 開頭，存在 Supabase Secrets）
   WEBHOOK_SECRET?: string; // Webhook 共用密碼，防止外人直接呼叫這個函式
-  MAIL_FROM?: string; // 寄件人，未設定時使用 Resend 的測試寄件地址
 }
 
 export interface RepairRecord {
@@ -50,9 +52,10 @@ function formatTime(iso?: string): string {
   }).format(d) + "（台灣時間）";
 }
 
-// 只寄純文字信，使用者輸入的內容不會被當成 HTML 解讀
-export function buildEmailText(r: RepairRecord): string {
-  return [
+// 組出 LINE 文字訊息（純文字，超過上限時截斷）
+export function buildMessageText(r: RepairRecord): string {
+  const text = [
+    TITLE,
     "有一筆新的報修：",
     "",
     `報修人：${r.reporter_name ?? ""}`,
@@ -64,12 +67,12 @@ export function buildEmailText(r: RepairRecord): string {
     "",
     "問題說明：",
     r.description ?? "",
-    "",
-    `編號：${r.id ?? ""}`,
-    "",
-    "（此信由報修登記系統自動寄出）",
   ].join("\n");
+  const chars = Array.from(text);
+  return chars.length > MAX_TEXT ? chars.slice(0, MAX_TEXT - 1).join("") + "…" : text;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -89,8 +92,8 @@ export function createHandler(env: NotifyEnv, fetchFn: typeof fetch = fetch) {
     }
 
     // 2. 檢查必要設定
-    if (!env.RESEND_API_KEY || !env.NOTIFY_EMAIL) {
-      console.error("缺少 RESEND_API_KEY 或 NOTIFY_EMAIL 設定");
+    if (!env.LINE_CHANNEL_ACCESS_TOKEN || !env.LINE_USER_ID) {
+      console.error("缺少 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_USER_ID 設定");
       return json(500, { error: "missing configuration" });
     }
 
@@ -105,24 +108,29 @@ export function createHandler(env: NotifyEnv, fetchFn: typeof fetch = fetch) {
       return json(200, { skipped: true });
     }
 
-    // 4. 呼叫 Resend 寄信
-    const res = await fetchFn("https://api.resend.com/emails", {
+    // 4. 呼叫 LINE 推播
+    const headers: Record<string, string> = {
+      "authorization": `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
+      "content-type": "application/json",
+    };
+    // 用報修編號當重試鍵：Webhook 重送同一筆時，LINE 不會重複推播
+    const id = payload.record.id ?? "";
+    if (UUID_RE.test(id)) headers["x-line-retry-key"] = id;
+
+    const res = await fetchFn(LINE_PUSH_URL, {
       method: "POST",
-      headers: {
-        "authorization": `Bearer ${env.RESEND_API_KEY}`,
-        "content-type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
-        from: env.MAIL_FROM || "報修系統 <onboarding@resend.dev>",
-        to: [env.NOTIFY_EMAIL],
-        subject: SUBJECT,
-        text: buildEmailText(payload.record),
+        to: env.LINE_USER_ID,
+        messages: [{ type: "text", text: buildMessageText(payload.record) }],
       }),
     });
 
+    // 409 代表同一個重試鍵已經推播過，視為成功
+    if (res.status === 409) return json(200, { sent: true, duplicate: true });
     if (!res.ok) {
-      // 只記錄狀態碼與錯誤內容，不記錄金鑰
-      console.error("寄信失敗", res.status, await res.text());
+      // 只記錄狀態碼與錯誤內容，不記錄權杖
+      console.error("LINE 推播失敗", res.status, await res.text());
       return json(502, { error: "send failed" });
     }
     return json(200, { sent: true });
@@ -132,9 +140,8 @@ export function createHandler(env: NotifyEnv, fetchFn: typeof fetch = fetch) {
 // 啟動 Edge Function
 Deno.serve(
   createHandler({
-    RESEND_API_KEY: Deno.env.get("RESEND_API_KEY"),
-    NOTIFY_EMAIL: Deno.env.get("NOTIFY_EMAIL"),
+    LINE_CHANNEL_ACCESS_TOKEN: Deno.env.get("LINE_CHANNEL_ACCESS_TOKEN"),
+    LINE_USER_ID: Deno.env.get("LINE_USER_ID"),
     WEBHOOK_SECRET: Deno.env.get("WEBHOOK_SECRET"),
-    MAIL_FROM: Deno.env.get("MAIL_FROM"),
   }),
 );
