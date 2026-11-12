@@ -11,8 +11,8 @@
 - 類別為「設備、網路、環境、其他」；緊急程度為「低、中、高」；狀態為「待處理、處理中、已完成」。
 - 管理員更新狀態屬後續需求；目前示範的存取規則不允許修改或刪除資料。不要自行開放更新權限。
 - 登入與狀態更新權責尚未決定。
-- 通知方式已採用 Email（Resend）：新增報修時由 Supabase Database Webhook 呼叫 Edge Function `notify-repair` 寄信，標題固定為「報修測試」。
-- 收件信箱、Resend API Key 與 Webhook 密碼只存在 Supabase Secrets，不得寫進儲存庫。
+- 通知方式已改用 LINE（Messaging API）：新增報修時由 Supabase Database Webhook 呼叫 Edge Function `notify-repair` 推播，訊息第一行固定為「【報修測試】」。不再使用 Email（Resend）。
+- LINE 頻道存取權杖、收通知的 LINE 使用者 ID 與 Webhook 密碼只存在 Supabase Secrets，不得寫進儲存庫。
 
 ## 資料與安全
 - 所有範例使用虛構姓名、地點與問題資料。
